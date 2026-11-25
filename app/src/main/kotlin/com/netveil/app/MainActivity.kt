@@ -10,18 +10,15 @@ import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
-
-
 import android.view.WindowManager
-import androidx.appcompat.app.AppCompatActivity
-import androidx.biometric.BiometricPrompt
-
-
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -55,9 +52,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-
-import android.view.WindowManager
-import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.netveil.app.model.VpnConnectionState
 import com.netveil.app.ui.HomeScreen
@@ -70,61 +66,19 @@ import com.netveil.app.ui.theme.VeilBg
 import com.netveil.app.ui.theme.VeilSurface
 import com.netveil.app.vpn.NetVeilVpnService
 
-class MainActivity : AppCompatActivity() {
-
-    // --- Security hardening -------------------------------------------------
-    // Prevent screenshots / recent‑apps thumbnail leaks (Play Protect friendly)
-    private fun applyScreenSecurity() {
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        )
-    }
-
-    // Prompt biometric auth before showing the UI. If the device has no biometric,
-    // the prompt is skipped (fallback to normal launch). This avoids loading the
-    // vault without user verification.
-    private fun maybeShowBiometricPrompt(onSuccess: () -> Unit) {
-        val executor = ContextCompat.getMainExecutor(this)
-        val biometricPrompt = androidx.biometric.BiometricPrompt(this, executor,
-            object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    onSuccess()
-                }
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                    // If user cancels or device has no biometric, just continue.
-                    onSuccess()
-                }
-            })
-        val promptInfo = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Аутентификация")
-            .setSubtitle("Разблокировать доступ к VPN‑профилям")
-            .setNegativeButtonText("Отмена")
-            .build()
-        biometricPrompt.authenticate(promptInfo)
-    }
-    // ------------------------------------------------------------------------
+class MainActivity : FragmentActivity() {
 
   private val viewModel: MainViewModel by viewModels()
 
   override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        // Apply security hardening before UI is shown
-        applyScreenSecurity()
-        // Show biometric auth (if available) before loading the app UI
-        maybeShowBiometricPrompt {
-            enableEdgeToEdge()
-            handleDeepLink(intent)
-            setContent {
-                NetVeilTheme {
-                    NetVeilRoot(viewModel = viewModel)
-                }
-            }
-        }
-    }
     super.onCreate(savedInstanceState)
+
+    // ── Security: block screenshots and Recents thumbnail ──
+    window.setFlags(
+      WindowManager.LayoutParams.FLAG_SECURE,
+      WindowManager.LayoutParams.FLAG_SECURE
+    )
+
     enableEdgeToEdge()
     handleDeepLink(intent)
 
@@ -133,6 +87,11 @@ class MainActivity : AppCompatActivity() {
         NetVeilRoot(viewModel = viewModel)
       }
     }
+
+    // ── Security: biometric gate (non-blocking) ──
+    // Show biometric prompt after UI is ready. If the device has no biometric
+    // hardware or nothing is enrolled, we simply skip — no extra permissions needed.
+    promptBiometricIfAvailable()
   }
 
   override fun onNewIntent(intent: Intent) {
@@ -145,6 +104,37 @@ class MainActivity : AppCompatActivity() {
     if (data.scheme.equals("vless", ignoreCase = true)) {
       viewModel.importInput(data.toString())
     }
+  }
+
+  private fun promptBiometricIfAvailable() {
+    val biometricManager = BiometricManager.from(this)
+    val canAuth = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+    if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) return // no hardware or nothing enrolled
+
+    val executor = ContextCompat.getMainExecutor(this)
+    val prompt = BiometricPrompt(this, executor,
+      object : BiometricPrompt.AuthenticationCallback() {
+        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+          // User cancelled or error — close the app to protect data
+          if (errorCode == BiometricPrompt.ERROR_USER_CANCELED ||
+            errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON
+          ) {
+            finishAffinity()
+          }
+        }
+        override fun onAuthenticationFailed() { /* retry automatically */ }
+        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+          // All good, UI is already visible
+        }
+      })
+
+    val promptInfo = BiometricPrompt.PromptInfo.Builder()
+      .setTitle("NetVeil")
+      .setSubtitle("Подтвердите личность")
+      .setNegativeButtonText("Отмена")
+      .build()
+
+    prompt.authenticate(promptInfo)
   }
 }
 
