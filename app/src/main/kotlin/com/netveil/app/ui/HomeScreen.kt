@@ -309,7 +309,10 @@ fun HomeScreen(
       Button(
         onClick = onPasteFromClipboard,
         modifier = Modifier.weight(1f),
-        colors = ButtonDefaults.buttonColors(containerColor = VeilSurfaceHigh),
+        colors = ButtonDefaults.buttonColors(
+          containerColor = VeilSurfaceHigh,
+          contentColor = com.netveil.app.ui.theme.VeilText
+        ),
         shape = RoundedCornerShape(12.dp)
       ) {
         Icon(Icons.Rounded.ContentPaste, null, modifier = Modifier.size(18.dp))
