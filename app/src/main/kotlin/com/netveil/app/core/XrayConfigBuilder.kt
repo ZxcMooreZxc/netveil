@@ -31,7 +31,19 @@ object XrayConfigBuilder {
   ): String {
     val useFailover = routing.autoFailover && failoverPool.size > 1
     val orderedPool = if (useFailover) {
-      listOf(primaryProfile) + failoverPool.filter { it.id != primaryProfile.id }.take(7)
+      val backups = failoverPool
+        .filter { it.id != primaryProfile.id }
+        .sortedWith(
+          compareBy<ServerProfile> {
+            when {
+              it.latencyMs != null && it.latencyMs > 0 -> 0
+              it.latencyMs == null -> 1
+              else -> 2
+            }
+          }.thenBy { it.latencyMs ?: Long.MAX_VALUE }
+        )
+        .take(7)
+      listOf(primaryProfile) + backups
     } else {
       listOf(primaryProfile)
     }

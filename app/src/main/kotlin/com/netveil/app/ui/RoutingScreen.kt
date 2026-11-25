@@ -98,7 +98,7 @@ fun RoutingScreen(
 
         SettingSwitchRow(
           title = "Auto-Failover (leastPing)",
-          subtitle = "При отвале сервера трафик автоматически переходит на живой узел из списка",
+          subtitle = "Автоматически выбирает самый быстрый узел из подписки (может переключить с выбранного вручную сервера)",
           checked = routing.autoFailover,
           onCheckedChange = onToggleAutoFailover
         )

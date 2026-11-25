@@ -76,7 +76,7 @@ data class SubscriptionGroup(
 @Serializable
 data class RoutingSettings(
   val mode: RoutingMode = RoutingMode.SMART_RU_WHITELIST,
-  val autoFailover: Boolean = true,
+  val autoFailover: Boolean = false,
   val tlsFragment: Boolean = false,
   val blockIpv6Leaks: Boolean = true,
   val directDomains: List<String> = listOf("gosuslugi.ru", "sberbank.ru", "tbank.ru", "nalog.ru", "yandex.ru"),
@@ -91,7 +91,8 @@ data class VaultData(
   val profiles: List<ServerProfile> = emptyList(),
   val subscriptions: List<SubscriptionGroup> = emptyList(),
   val activeProfileId: String? = null,
-  val routing: RoutingSettings = RoutingSettings()
+  val routing: RoutingSettings = RoutingSettings(),
+  val schemaVersion: Int = 0
 )
 
 enum class VpnConnectionState {

@@ -37,12 +37,14 @@ class NetVeilVpnService : VpnService() {
   private var vpnInterface: ParcelFileDescriptor? = null
   private var coreController: CoreController? = null
   private var statsJob: Job? = null
+  private var startJob: Job? = null
 
   private var totalUp = 0L
   private var totalDown = 0L
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_DISCONNECT) {
+      startJob?.cancel()
       stopVpn(clearError = true)
       return START_NOT_STICKY
     }
@@ -55,7 +57,8 @@ class NetVeilVpnService : VpnService() {
       startForeground(NOTIFICATION_ID, initialNotification)
     }
 
-    serviceScope.launch {
+    startJob?.cancel()
+    startJob = serviceScope.launch {
       startVpnInternal()
     }
     return START_STICKY
@@ -80,9 +83,10 @@ class NetVeilVpnService : VpnService() {
     }
     val useFailover = vault.routing.autoFailover && failoverPool.size > 1
 
+    val isSwitching = coreController != null || vpnInterface != null
     VpnStateBus.update {
       it.copy(
-        state = VpnConnectionState.CONNECTING,
+        state = if (isSwitching) VpnConnectionState.RECONNECTING else VpnConnectionState.CONNECTING,
         activeProfileName = active.name,
         failoverActive = useFailover,
         errorMessage = null

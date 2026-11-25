@@ -42,7 +42,7 @@ object VlessUriParser {
       .lineSequence()
       .map { it.trim() }
       .filter { it.isNotEmpty() && !it.startsWith("#") }
-      .take(300)
+      .take(500)
       .toList()
 
     val valid = mutableListOf<ServerProfile>()

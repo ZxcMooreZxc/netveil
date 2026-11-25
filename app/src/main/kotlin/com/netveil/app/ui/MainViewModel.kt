@@ -18,7 +18,9 @@ import com.netveil.app.model.RoutingSettings
 import com.netveil.app.model.ServerProfile
 import com.netveil.app.model.SplitAppMode
 import com.netveil.app.model.VaultData
+import com.netveil.app.model.VpnConnectionState
 import com.netveil.app.model.VpnStatusSnapshot
+import com.netveil.app.vpn.NetVeilVpnService
 import com.netveil.app.vpn.VpnStateBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,6 +29,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -89,9 +92,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   private fun updateVault(transform: (VaultData) -> VaultData) {
-    val updated = transform(_uiState.value.vault)
-    vaultStore.save(updated)
-    _uiState.value = _uiState.value.copy(vault = updated)
+    var savedVault: VaultData? = null
+    _uiState.update { state ->
+      val updated = transform(state.vault)
+      savedVault = updated
+      state.copy(vault = updated)
+    }
+    savedVault?.let { vaultStore.save(it) }
   }
 
   fun importInput(rawInput: String) {
@@ -188,7 +195,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   fun selectProfile(profileId: String) {
+    val target = _uiState.value.vault.profiles.firstOrNull { it.id == profileId } ?: return
+    if (_uiState.value.vault.activeProfileId == profileId) return
+
     updateVault { it.copy(activeProfileId = profileId) }
+    val state = vpnStatus.value.state
+    if (state == VpnConnectionState.CONNECTED ||
+      state == VpnConnectionState.CONNECTING ||
+      state == VpnConnectionState.RECONNECTING
+    ) {
+      NetVeilVpnService.start(getApplication())
+      showBanner("Переключение на ${target.name}...")
+    }
   }
 
   fun deleteProfile(profileId: String) {
@@ -215,15 +233,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
               val delayMs = measureProfileDelay(profile)
               val testedAt = System.currentTimeMillis()
               stateMutex.withLock {
-                val updatedVault = _uiState.value.vault.copy(
-                  profiles = _uiState.value.vault.profiles.map { p ->
-                    if (p.id == profile.id) p.copy(latencyMs = delayMs, lastTestedAt = testedAt) else p
-                  }
-                )
-                _uiState.value = _uiState.value.copy(
-                  vault = updatedVault,
-                  pingingIds = _uiState.value.pingingIds - profile.id
-                )
+                _uiState.update { state ->
+                  val updatedVault = state.vault.copy(
+                    profiles = state.vault.profiles.map { p ->
+                      if (p.id == profile.id) p.copy(latencyMs = delayMs, lastTestedAt = testedAt) else p
+                    }
+                  )
+                  state.copy(
+                    vault = updatedVault,
+                    pingingIds = state.pingingIds - profile.id
+                  )
+                }
               }
             }
           }
@@ -384,6 +404,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   private fun updateRouting(transform: (RoutingSettings) -> RoutingSettings) {
     updateVault { current -> current.copy(routing = transform(current.routing)) }
+    val state = vpnStatus.value.state
+    if (state == VpnConnectionState.CONNECTED ||
+      state == VpnConnectionState.CONNECTING ||
+      state == VpnConnectionState.RECONNECTING
+    ) {
+      NetVeilVpnService.start(getApplication())
+    }
   }
 
   fun clearLogs() {

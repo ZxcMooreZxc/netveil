@@ -31,13 +31,24 @@ class SecureVault(private val context: Context) {
   @Synchronized
   fun load(): VaultData {
     val file = vaultFile
-    if (!file.exists()) return VaultData()
+    if (!file.exists()) return VaultData(schemaVersion = CURRENT_SCHEMA_VERSION)
     return try {
       val encrypted = file.readBytes()
       val plainBytes = decrypt(encrypted)
-      json.decodeFromString<VaultData>(plainBytes.decodeToString())
+      val decoded = json.decodeFromString<VaultData>(plainBytes.decodeToString())
+      if (decoded.schemaVersion < CURRENT_SCHEMA_VERSION) {
+        // v0.2.1 migration: disable leastPing auto-failover by default so manual server selection is always respected
+        val migrated = decoded.copy(
+          routing = decoded.routing.copy(autoFailover = false),
+          schemaVersion = CURRENT_SCHEMA_VERSION
+        )
+        save(migrated)
+        migrated
+      } else {
+        decoded
+      }
     } catch (_: Exception) {
-      VaultData()
+      VaultData(schemaVersion = CURRENT_SCHEMA_VERSION)
     }
   }
 
@@ -102,5 +113,6 @@ class SecureVault(private val context: Context) {
     private const val KEY_ALIAS = "netveil_vault_aes256_gcm"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val VAULT_FILE_NAME = "netveil_vault.enc"
+    private const val CURRENT_SCHEMA_VERSION = 2
   }
 }
