@@ -95,19 +95,14 @@ class XrayConfigBuilderTest {
   }
 
   @Test
-  fun `app updater validates semver and rejects untrusted download urls`() {
-    assertTrue(AppUpdater.isNewerVersion("0.2.0", "0.1.2"))
-    assertFalse(AppUpdater.isNewerVersion("0.1.2", "0.1.2"))
-    assertFalse(AppUpdater.isNewerVersion("0.1.0", "0.1.2"))
+  fun `app updater validates semver and pins release html url to official repo`() {
+    assertTrue(AppUpdater.isNewerVersion("0.2.1", "0.2.0"))
+    assertFalse(AppUpdater.isNewerVersion("0.2.0", "0.2.0"))
+    assertFalse(AppUpdater.isNewerVersion("0.1.2", "0.2.0"))
 
-    assertTrue(
-      AppUpdater.isValidDownloadUrl("https://github.com/ZxcMooreZxc/netveil/releases/download/v0.2.0/NetVeil-v0.2.0.apk")
-    )
-    assertFalse(
-      AppUpdater.isValidDownloadUrl("https://evil.com/NetVeil-v0.2.0.apk")
-    )
-    assertFalse(
-      AppUpdater.isValidDownloadUrl("http://github.com/ZxcMooreZxc/netveil/releases/download/v0.2.0/NetVeil.apk")
-    )
+    val evilJson = """{"tag_name":"v0.2.1","html_url":"https://evil.com/phish","body":"fix"}"""
+    val parsed = AppUpdater.parseReleaseJson(evilJson, "0.2.0")
+    assertNotNull(parsed)
+    assertEquals("https://github.com/ZxcMooreZxc/netveil/releases/tag/v0.2.1", parsed?.htmlUrl)
   }
 }

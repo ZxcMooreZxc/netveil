@@ -38,7 +38,6 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import libv2ray.Libv2ray
-import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
 
@@ -57,9 +56,7 @@ data class MainUiState(
   val coreVersion: String = "",
   val appVersion: String = BuildConfig.VERSION_NAME,
   val isCheckingUpdate: Boolean = false,
-  val availableRelease: ReleaseInfo? = null,
-  val updateDownloadPct: Int? = null,
-  val readyUpdateApk: File? = null
+  val availableRelease: ReleaseInfo? = null
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -319,29 +316,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         showBanner(e.message ?: "Не удалось проверить обновления", isError = true)
       } finally {
         _uiState.value = _uiState.value.copy(isCheckingUpdate = false)
-      }
-    }
-  }
-
-  fun downloadAvailableUpdate() {
-    val release = _uiState.value.availableRelease ?: return
-    if (_uiState.value.updateDownloadPct != null) return
-    viewModelScope.launch {
-      _uiState.value = _uiState.value.copy(updateDownloadPct = 0, readyUpdateApk = null)
-      try {
-        val apkFile = AppUpdater.downloadAndVerifyApk(
-          context = getApplication(),
-          release = release,
-          onProgress = { pct ->
-            _uiState.value = _uiState.value.copy(updateDownloadPct = pct)
-          }
-        )
-        AppLogger.info("Обновление v${release.versionName} скачано и прошло проверку подписи")
-        _uiState.value = _uiState.value.copy(updateDownloadPct = null, readyUpdateApk = apkFile)
-      } catch (e: Exception) {
-        AppLogger.error("Ошибка обновления: ${e.message}")
-        _uiState.value = _uiState.value.copy(updateDownloadPct = null)
-        showBanner(e.message ?: "Не удалось скачать обновление", isError = true)
       }
     }
   }

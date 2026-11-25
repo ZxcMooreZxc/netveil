@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -49,7 +50,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.netveil.app.model.VpnConnectionState
 import com.netveil.app.ui.HomeScreen
@@ -222,19 +222,8 @@ private fun NetVeilRoot(viewModel: MainViewModel) {
           onSetSplitAppMode = viewModel::setSplitAppMode,
           onToggleAppPackage = viewModel::toggleAppPackage,
           onCheckUpdates = viewModel::checkForUpdates,
-          onDownloadUpdate = viewModel::downloadAvailableUpdate,
-          onInstallReadyUpdate = {
-            val apkFile = uiState.readyUpdateApk ?: return@RoutingScreen
-            val uri = FileProvider.getUriForFile(
-              context,
-              "${context.packageName}.fileprovider",
-              apkFile
-            )
-            val installIntent = Intent(Intent.ACTION_VIEW).apply {
-              setDataAndType(uri, "application/vnd.android.package-archive")
-              addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(installIntent)
+          onOpenReleasePage = { url ->
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
           }
         )
         3 -> LogsScreen(

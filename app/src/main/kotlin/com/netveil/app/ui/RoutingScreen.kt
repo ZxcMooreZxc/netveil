@@ -69,8 +69,7 @@ fun RoutingScreen(
   onSetSplitAppMode: (SplitAppMode) -> Unit,
   onToggleAppPackage: (String) -> Unit,
   onCheckUpdates: () -> Unit,
-  onDownloadUpdate: () -> Unit,
-  onInstallReadyUpdate: () -> Unit
+  onOpenReleasePage: (String) -> Unit
 ) {
   val routing = uiState.vault.routing
   var directInput by remember { mutableStateOf("") }
@@ -259,30 +258,13 @@ fun RoutingScreen(
           )
         }
         Text(
-          text = "Загрузка только с GitHub Releases (HTTPS) с проверкой SHA-256 сертификата подписи.",
+          text = "Проверка новых версий через GitHub Releases (HTTPS) с переходом на официальную страницу релиза.",
           style = MaterialTheme.typography.bodySmall,
           color = VeilMuted
         )
 
         val rel = uiState.availableRelease
-        val dlPct = uiState.updateDownloadPct
-        val readyApk = uiState.readyUpdateApk
-
-        if (readyApk != null) {
-          Button(
-            onClick = onInstallReadyUpdate,
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier.fillMaxWidth()
-          ) {
-            Text("Установить v${rel?.versionName ?: ""} (подпись проверена)")
-          }
-        } else if (dlPct != null) {
-          LinearProgressIndicator(
-            progress = { dlPct / 100f },
-            modifier = Modifier.fillMaxWidth()
-          )
-          Text("Скачивание и проверка: $dlPct%", style = MaterialTheme.typography.bodySmall, color = VeilMuted)
-        } else if (rel != null) {
+        if (rel != null) {
           Text(
             text = "Доступна v${rel.versionName}",
             style = MaterialTheme.typography.bodyMedium,
@@ -290,11 +272,11 @@ fun RoutingScreen(
             color = VeilEmerald
           )
           Button(
-            onClick = onDownloadUpdate,
+            onClick = { onOpenReleasePage(rel.htmlUrl) },
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier.fillMaxWidth()
           ) {
-            Text("Скачать v${rel.versionName}")
+            Text("Открыть релиз v${rel.versionName} на GitHub")
           }
         } else {
           OutlinedButton(
