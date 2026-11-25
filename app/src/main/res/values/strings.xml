@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">NetVeil</string>
+    <string name="tile_label">NetVeil VPN</string>
+</resources>
