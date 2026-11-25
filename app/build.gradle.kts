@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
+}
+
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+  if (keystorePropsFile.exists()) {
+    keystorePropsFile.inputStream().use { load(it) }
+  }
 }
 
 android {
@@ -11,14 +20,28 @@ android {
     applicationId = "com.netveil.app"
     minSdk = 26
     targetSdk = 35
-    versionCode = 2
-    versionName = "0.1.1"
+    versionCode = 3
+    versionName = "0.1.2"
+  }
+
+  signingConfigs {
+    if (keystorePropsFile.exists()) {
+      create("release") {
+        storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+        storePassword = keystoreProps.getProperty("storePassword")
+        keyAlias = keystoreProps.getProperty("keyAlias")
+        keyPassword = keystoreProps.getProperty("keyPassword")
+      }
+    }
   }
 
   buildTypes {
     release {
       isMinifyEnabled = true
       isShrinkResources = true
+      if (keystorePropsFile.exists()) {
+        signingConfig = signingConfigs.getByName("release")
+      }
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
   }

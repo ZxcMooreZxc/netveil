@@ -15,3 +15,7 @@
 local.properties
 app/libs/*.aar
 app/libs/*.jar
+keystore/
+keystore.properties
+*.jks
+*.keystore
