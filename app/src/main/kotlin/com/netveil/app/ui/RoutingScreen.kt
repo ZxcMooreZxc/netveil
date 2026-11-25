@@ -21,8 +21,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -30,6 +32,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -64,7 +67,10 @@ fun RoutingScreen(
   onAddDomain: (String, Boolean) -> Unit,
   onRemoveDomain: (String, Boolean) -> Unit,
   onSetSplitAppMode: (SplitAppMode) -> Unit,
-  onToggleAppPackage: (String) -> Unit
+  onToggleAppPackage: (String) -> Unit,
+  onCheckUpdates: () -> Unit,
+  onDownloadUpdate: () -> Unit,
+  onInstallReadyUpdate: () -> Unit
 ) {
   val routing = uiState.vault.routing
   var directInput by remember { mutableStateOf("") }
@@ -232,6 +238,75 @@ fun RoutingScreen(
         AuditLine("Санитизация URI: allowInsecure отключён, bind только 127.0.0.1")
         AuditLine("Резервное копирование (allowBackup): отключено")
         AuditLine("Маскировка UUID, ключей Reality и IP в логах")
+      }
+    }
+
+    // In-App Secure Updater Card
+    Card(
+      colors = CardDefaults.cardColors(containerColor = VeilSurface),
+      border = BorderStroke(1.dp, VeilBorder),
+      shape = RoundedCornerShape(16.dp),
+      modifier = Modifier.fillMaxWidth()
+    ) {
+      Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(Icons.Rounded.SystemUpdate, null, tint = VeilCyan, modifier = Modifier.size(18.dp))
+          Spacer(Modifier.width(8.dp))
+          Text(
+            text = "Обновления (v${uiState.appVersion})",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+          )
+        }
+        Text(
+          text = "Загрузка только с GitHub Releases (HTTPS) с проверкой SHA-256 сертификата подписи.",
+          style = MaterialTheme.typography.bodySmall,
+          color = VeilMuted
+        )
+
+        val rel = uiState.availableRelease
+        val dlPct = uiState.updateDownloadPct
+        val readyApk = uiState.readyUpdateApk
+
+        if (readyApk != null) {
+          Button(
+            onClick = onInstallReadyUpdate,
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text("Установить v${rel?.versionName ?: ""} (подпись проверена)")
+          }
+        } else if (dlPct != null) {
+          LinearProgressIndicator(
+            progress = { dlPct / 100f },
+            modifier = Modifier.fillMaxWidth()
+          )
+          Text("Скачивание и проверка: $dlPct%", style = MaterialTheme.typography.bodySmall, color = VeilMuted)
+        } else if (rel != null) {
+          Text(
+            text = "Доступна v${rel.versionName}",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = VeilEmerald
+          )
+          Button(
+            onClick = onDownloadUpdate,
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text("Скачать v${rel.versionName}")
+          }
+        } else {
+          OutlinedButton(
+            onClick = onCheckUpdates,
+            enabled = !uiState.isCheckingUpdate,
+            border = BorderStroke(1.dp, VeilBorder),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text(if (uiState.isCheckingUpdate) "Проверка..." else "Проверить обновления")
+          }
+        }
       }
     }
 

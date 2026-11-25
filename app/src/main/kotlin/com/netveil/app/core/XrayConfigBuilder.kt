@@ -90,18 +90,6 @@ object XrayConfigBuilder {
   fun buildPingConfig(profile: ServerProfile): String {
     val root = buildJsonObject {
       put("log", buildJsonObject { put("loglevel", "none") })
-      put("inbounds", buildJsonArray {
-        add(buildJsonObject {
-          put("tag", "socks-ping")
-          put("listen", "127.0.0.1")
-          put("port", 10809)
-          put("protocol", "socks")
-          put("settings", buildJsonObject {
-            put("auth", "noauth")
-            put("udp", true)
-          })
-        })
-      })
       put("outbounds", buildJsonArray {
         add(buildProxyOutbound(profile, "proxy", tlsFragment = false))
       })

@@ -93,4 +93,21 @@ class XrayConfigBuilderTest {
     val localErr = runCatching { SubscriptionFetcher.validateSubscriptionUrl("https://localhost/sub") }.exceptionOrNull()
     assertNotNull(localErr)
   }
+
+  @Test
+  fun `app updater validates semver and rejects untrusted download urls`() {
+    assertTrue(AppUpdater.isNewerVersion("0.2.0", "0.1.2"))
+    assertFalse(AppUpdater.isNewerVersion("0.1.2", "0.1.2"))
+    assertFalse(AppUpdater.isNewerVersion("0.1.0", "0.1.2"))
+
+    assertTrue(
+      AppUpdater.isValidDownloadUrl("https://github.com/ZxcMooreZxc/netveil/releases/download/v0.2.0/NetVeil-v0.2.0.apk")
+    )
+    assertFalse(
+      AppUpdater.isValidDownloadUrl("https://evil.com/NetVeil-v0.2.0.apk")
+    )
+    assertFalse(
+      AppUpdater.isValidDownloadUrl("http://github.com/ZxcMooreZxc/netveil/releases/download/v0.2.0/NetVeil.apk")
+    )
+  }
 }

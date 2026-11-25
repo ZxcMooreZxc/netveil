@@ -4,8 +4,11 @@ import android.app.Application
 import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.netveil.app.BuildConfig
 import com.netveil.app.core.AppLogger
+import com.netveil.app.core.AppUpdater
 import com.netveil.app.core.LogEntry
+import com.netveil.app.core.ReleaseInfo
 import com.netveil.app.core.SubscriptionFetcher
 import com.netveil.app.core.VlessUriParser
 import com.netveil.app.core.XrayConfigBuilder
@@ -18,16 +21,23 @@ import com.netveil.app.model.VaultData
 import com.netveil.app.model.VpnStatusSnapshot
 import com.netveil.app.vpn.VpnStateBus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import libv2ray.Libv2ray
+import java.io.File
+import java.net.InetSocketAddress
+import java.net.Socket
 
 data class InstalledAppInfo(
   val packageName: String,
@@ -41,12 +51,19 @@ data class MainUiState(
   val bannerMessage: String? = null,
   val bannerIsError: Boolean = false,
   val installedApps: List<InstalledAppInfo> = emptyList(),
-  val coreVersion: String = ""
+  val coreVersion: String = "",
+  val appVersion: String = BuildConfig.VERSION_NAME,
+  val isCheckingUpdate: Boolean = false,
+  val availableRelease: ReleaseInfo? = null,
+  val updateDownloadPct: Int? = null,
+  val readyUpdateApk: File? = null
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   private val vaultStore = SecureVault(application)
+  private val stateMutex = Mutex()
+  private var pingAllJob: Job? = null
 
   private val _uiState = MutableStateFlow(
     MainUiState(
@@ -186,32 +203,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val profiles = _uiState.value.vault.profiles
     if (profiles.isEmpty()) return
 
-    viewModelScope.launch {
-      val semaphore = Semaphore(4)
+    pingAllJob?.cancel()
+    pingAllJob = viewModelScope.launch {
+      val semaphore = Semaphore(10)
       _uiState.value = _uiState.value.copy(pingingIds = profiles.map { it.id }.toSet())
 
-      val results = profiles.map { profile ->
-        async(Dispatchers.IO) {
-          semaphore.withPermit {
-            val delayMs = measureProfileDelay(profile)
-            profile.id to delayMs
-          }
-        }
-      }.awaitAll().toMap()
-
-      val now = System.currentTimeMillis()
-      updateVault { current ->
-        current.copy(
-          profiles = current.profiles.map { p ->
-            if (results.containsKey(p.id)) {
-              p.copy(latencyMs = results[p.id], lastTestedAt = now)
-            } else {
-              p
+      try {
+        profiles.map { profile ->
+          async(Dispatchers.IO) {
+            semaphore.withPermit {
+              val delayMs = measureProfileDelay(profile)
+              val testedAt = System.currentTimeMillis()
+              stateMutex.withLock {
+                val updatedVault = _uiState.value.vault.copy(
+                  profiles = _uiState.value.vault.profiles.map { p ->
+                    if (p.id == profile.id) p.copy(latencyMs = delayMs, lastTestedAt = testedAt) else p
+                  }
+                )
+                _uiState.value = _uiState.value.copy(
+                  vault = updatedVault,
+                  pingingIds = _uiState.value.pingingIds - profile.id
+                )
+              }
             }
           }
-        )
+        }.awaitAll()
+      } finally {
+        stateMutex.withLock {
+          vaultStore.save(_uiState.value.vault)
+          _uiState.value = _uiState.value.copy(pingingIds = emptySet())
+        }
       }
-      _uiState.value = _uiState.value.copy(pingingIds = emptySet())
     }
   }
 
@@ -221,23 +243,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       _uiState.value = _uiState.value.copy(pingingIds = _uiState.value.pingingIds + profileId)
       val delayMs = withContext(Dispatchers.IO) { measureProfileDelay(profile) }
       val now = System.currentTimeMillis()
-      updateVault { current ->
-        current.copy(
-          profiles = current.profiles.map {
+      stateMutex.withLock {
+        val updated = _uiState.value.vault.copy(
+          profiles = _uiState.value.vault.profiles.map {
             if (it.id == profileId) it.copy(latencyMs = delayMs, lastTestedAt = now) else it
           }
         )
+        vaultStore.save(updated)
+        _uiState.value = _uiState.value.copy(
+          vault = updated,
+          pingingIds = _uiState.value.pingingIds - profileId
+        )
       }
-      _uiState.value = _uiState.value.copy(pingingIds = _uiState.value.pingingIds - profileId)
     }
   }
 
-  private fun measureProfileDelay(profile: ServerProfile): Long {
-    return try {
-      val config = XrayConfigBuilder.buildPingConfig(profile)
-      Libv2ray.measureOutboundDelay(config, "https://www.gstatic.com/generate_204")
-    } catch (_: Exception) {
-      -1L
+  private suspend fun measureProfileDelay(profile: ServerProfile): Long {
+    // Fast TCP reachability pre-check (2.5s) so dead nodes don't stall Go for 12s each
+    val tcpReachable = withContext(Dispatchers.IO) {
+      runCatching {
+        Socket().use { socket ->
+          socket.connect(InetSocketAddress(profile.host, profile.port), 2500)
+        }
+        true
+      }.getOrDefault(false)
+    }
+    if (!tcpReachable) return -1L
+
+    return withTimeoutOrNull(6500L) {
+      withContext(Dispatchers.IO) {
+        try {
+          val config = XrayConfigBuilder.buildPingConfig(profile)
+          Libv2ray.measureOutboundDelay(config, "https://www.gstatic.com/generate_204")
+        } catch (_: Exception) {
+          -1L
+        }
+      }
+    } ?: -1L
+  }
+
+  fun checkForUpdates() {
+    if (_uiState.value.isCheckingUpdate) return
+    viewModelScope.launch {
+      _uiState.value = _uiState.value.copy(isCheckingUpdate = true)
+      try {
+        val release = AppUpdater.checkForUpdate(BuildConfig.VERSION_NAME)
+        _uiState.value = _uiState.value.copy(availableRelease = release)
+        if (release == null) {
+          showBanner("У вас установлена последняя версия (${BuildConfig.VERSION_NAME})")
+        } else {
+          showBanner("Доступно обновление: v${release.versionName}")
+        }
+      } catch (e: Exception) {
+        AppLogger.warn("Ошибка проверки обновлений: ${e.message}")
+        showBanner(e.message ?: "Не удалось проверить обновления", isError = true)
+      } finally {
+        _uiState.value = _uiState.value.copy(isCheckingUpdate = false)
+      }
+    }
+  }
+
+  fun downloadAvailableUpdate() {
+    val release = _uiState.value.availableRelease ?: return
+    if (_uiState.value.updateDownloadPct != null) return
+    viewModelScope.launch {
+      _uiState.value = _uiState.value.copy(updateDownloadPct = 0, readyUpdateApk = null)
+      try {
+        val apkFile = AppUpdater.downloadAndVerifyApk(
+          context = getApplication(),
+          release = release,
+          onProgress = { pct ->
+            _uiState.value = _uiState.value.copy(updateDownloadPct = pct)
+          }
+        )
+        AppLogger.info("Обновление v${release.versionName} скачано и прошло проверку подписи")
+        _uiState.value = _uiState.value.copy(updateDownloadPct = null, readyUpdateApk = apkFile)
+      } catch (e: Exception) {
+        AppLogger.error("Ошибка обновления: ${e.message}")
+        _uiState.value = _uiState.value.copy(updateDownloadPct = null)
+        showBanner(e.message ?: "Не удалось скачать обновление", isError = true)
+      }
     }
   }
 
