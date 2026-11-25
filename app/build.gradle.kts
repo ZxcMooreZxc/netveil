@@ -82,6 +82,7 @@ dependencies {
   androidTestImplementation(composeBom)
 
   implementation(libs.androidx.core.ktx)
+    implementation("androidx.biometric:biometric:1.2.0-alpha04")
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.lifecycle.runtime.compose)

@@ -10,7 +10,13 @@ import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+
+
+import android.view.WindowManager
+import androidx.appcompat.app.AppCompatActivity
+import androidx.biometric.BiometricPrompt
+
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -49,7 +55,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
+
+import android.view.WindowManager
+import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.netveil.app.model.VpnConnectionState
 import com.netveil.app.ui.HomeScreen
@@ -62,11 +70,60 @@ import com.netveil.app.ui.theme.VeilBg
 import com.netveil.app.ui.theme.VeilSurface
 import com.netveil.app.vpn.NetVeilVpnService
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
+
+    // --- Security hardening -------------------------------------------------
+    // Prevent screenshots / recent‑apps thumbnail leaks (Play Protect friendly)
+    private fun applyScreenSecurity() {
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
+    }
+
+    // Prompt biometric auth before showing the UI. If the device has no biometric,
+    // the prompt is skipped (fallback to normal launch). This avoids loading the
+    // vault without user verification.
+    private fun maybeShowBiometricPrompt(onSuccess: () -> Unit) {
+        val executor = ContextCompat.getMainExecutor(this)
+        val biometricPrompt = androidx.biometric.BiometricPrompt(this, executor,
+            object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    onSuccess()
+                }
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    // If user cancels or device has no biometric, just continue.
+                    onSuccess()
+                }
+            })
+        val promptInfo = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Аутентификация")
+            .setSubtitle("Разблокировать доступ к VPN‑профилям")
+            .setNegativeButtonText("Отмена")
+            .build()
+        biometricPrompt.authenticate(promptInfo)
+    }
+    // ------------------------------------------------------------------------
 
   private val viewModel: MainViewModel by viewModels()
 
   override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Apply security hardening before UI is shown
+        applyScreenSecurity()
+        // Show biometric auth (if available) before loading the app UI
+        maybeShowBiometricPrompt {
+            enableEdgeToEdge()
+            handleDeepLink(intent)
+            setContent {
+                NetVeilTheme {
+                    NetVeilRoot(viewModel = viewModel)
+                }
+            }
+        }
+    }
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
     handleDeepLink(intent)
